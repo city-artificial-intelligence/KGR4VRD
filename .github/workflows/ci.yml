@@ -1,0 +1,25 @@
+name: Scientific checks and offline package
+on: [push, pull_request]
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.13.1"
+      - run: uv sync --locked --all-extras --group dev --python 3.11
+      - run: uv run --locked ruff check src tests
+      - run: uv run --locked ruff format --check src tests
+      - run: uv run --locked mypy src/kgr4vrd
+      - run: uv run --locked pytest -q
+      - run: uv build
+      - name: Install wheel and run offline outside checkout
+        run: |
+          uv venv /tmp/kgr4vrd-wheel --python 3.11
+          uv export --locked --all-extras --no-dev --no-emit-project > /tmp/kgr4vrd-requirements.txt
+          uv pip install --python /tmp/kgr4vrd-wheel/bin/python -r /tmp/kgr4vrd-requirements.txt
+          uv pip install --python /tmp/kgr4vrd-wheel/bin/python --no-deps dist/*.whl
+          cd /tmp
+          /tmp/kgr4vrd-wheel/bin/kgr4vrd --help
+          /tmp/kgr4vrd-wheel/bin/kgr4vrd smoke --output /tmp/kgr4vrd-smoke

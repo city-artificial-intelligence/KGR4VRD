@@ -1,0 +1,52 @@
+schema_version = "kgr4vrd.config/1"
+protocol_id = "nesy4vrd-corrected-v1"
+
+[paths]
+data_root = "../data"
+artifact_root = "../artifacts"
+
+[dataset]
+name = "nesy4vrd"
+manifest = "prepared/nesy4vrd/v1/dataset.json"
+split = "prepared/nesy4vrd/v1/splits.json"
+
+[model]
+name = "geometry_mlp"
+feature_profile = "legacy_geometry_v1"
+auxiliary_output = true
+
+[intervention]
+condition = "baseline"
+augmentation_profile = "S_TEU"
+augmentation_manifest = "knowledge/augmentation/S_TEU/manifest.json"
+knowledge_manifest = "knowledge/compatibility/manifest.json"
+control_manifest = "knowledge/control/manifest.json"
+semantic_policy = "gated_type_mask"
+semantic_lambda = 1.0
+semantic_start_epoch = 3
+activation_threshold = 0.5
+
+[training]
+seed = 11
+learning_rate = 0.0001
+weight_decay = 0.001
+max_epochs = 100
+patience = 25
+batch_images = 1
+loss_reduction = "image_sum"
+device = "cpu"
+precision = "float32"
+num_workers = 0
+selection_metric = "recall_image_mean_at_50"
+
+[evaluation]
+ranking = "multi_label"
+top_k = [25, 50, 100]
+threshold_policy = "none"
+matching = "exact_instance"
+simple_filter_manifest = "knowledge/simple-filter/manifest.json"
+diagnostic_threshold = 0.5
+diagnostic_top_k = 999
+
+# Supply acquired local filenames in [preparation.sources] as documented.
+# No download, ontology path, weight digest or publisher license is invented here.

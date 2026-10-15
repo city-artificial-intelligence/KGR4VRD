@@ -1,0 +1,15 @@
+schema_version = "kgr4vrd.config/1"
+protocol_id = "synthetic-integration-v1"
+
+[paths]
+data_root = "../artifacts/smoke/data"
+artifact_root = "../artifacts/smoke/artifacts"
+
+[dataset]
+name = "synthetic"
+manifest = "prepared/synthetic/dataset.json"
+split = "prepared/synthetic/splits.json"
+
+[training]
+max_epochs = 4
+patience = 25
