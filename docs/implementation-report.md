@@ -34,7 +34,9 @@ The dated evidence below remains the original implementation record.
 
 Follow-up verification: **106 passed, 7 explicit integration skips** (five CUDA,
 one real GraphDB, one acquired encoder); Ruff lint/format, mypy over all 22 source
-files, locked dependency checks and Git whitespace checks pass. The 611 warnings
+files, locked dependency checks and whitespace checks on the corrections pass.
+Archived research files retain their original bytes, including existing whitespace.
+The 611 warnings
 are dependency deprecations from RDFLib/Matplotlib's Pyparsing calls. Both CUDA
 locks and the clean-wheel Linux CPU install command resolve in target-platform
 dry runs. The latter now explicitly selects the CPU PyTorch index in CI.
