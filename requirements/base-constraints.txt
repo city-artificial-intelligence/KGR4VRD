@@ -1,0 +1,78 @@
+build==1.3.0
+colorama==0.4.6 ; (os_name != 'nt' and sys_platform == 'win32') or (os_name == 'nt' and sys_platform != 'linux')
+    # via
+    #   build
+    #   pytest
+contourpy==1.3.3
+    # via matplotlib
+cycler==0.12.1
+    # via matplotlib
+filelock==4.2.0
+    # via torch
+fonttools==4.67.0
+    # via matplotlib
+fsspec==2026.9.0
+    # via torch
+iniconfig==2.3.1
+    # via pytest
+jinja2==3.1.6
+    # via torch
+kiwisolver==1.5.1
+    # via matplotlib
+markupsafe==3.0.4
+    # via jinja2
+matplotlib==3.10.6
+    # via kgr4vrd
+mpmath==1.3.0
+    # via sympy
+mypy==1.18.2
+mypy-extensions==1.1.0
+    # via mypy
+networkx==3.6.1
+    # via torch
+numpy==1.26.4
+    # via
+    #   contourpy
+    #   kgr4vrd
+    #   matplotlib
+    #   torchvision
+owlrl==7.1.4
+    # via kgr4vrd
+packaging==26.3
+    # via
+    #   build
+    #   matplotlib
+    #   pytest
+pathspec==1.1.1
+    # via mypy
+pillow==11.3.0
+    # via
+    #   kgr4vrd
+    #   matplotlib
+    #   torchvision
+pluggy==1.7.0
+    # via pytest
+pygments==2.21.0
+    # via pytest
+pyparsing==3.3.3
+    # via
+    #   matplotlib
+    #   rdflib
+pyproject-hooks==1.3.3
+    # via build
+pytest==8.4.2
+python-dateutil==2.9.0.post0
+    # via matplotlib
+rdflib==7.1.4
+    # via
+    #   kgr4vrd
+    #   owlrl
+ruff==0.13.2
+six==1.17.0
+    # via python-dateutil
+sympy==1.14.0
+    # via torch
+typing-extensions==4.16.0
+    # via
+    #   mypy
+    #   torch

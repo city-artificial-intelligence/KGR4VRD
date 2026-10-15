@@ -1,0 +1,4 @@
+schema_version = "kgr4vrd.campaign-config/1"
+base_config = "nesy4vrd-cuda.toml"
+
+# Add measured pilot, development and input records before freezing.

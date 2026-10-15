@@ -1,0 +1,3 @@
+# Keep the JIT linker in the selected CUDA 12.1 family, rather than a moving 12.x release.
+-c base-constraints.txt
+nvidia-nvjitlink-cu12==12.1.105

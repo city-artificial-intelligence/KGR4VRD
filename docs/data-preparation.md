@@ -24,6 +24,8 @@ source_version = "1.1"
 output_directory = "prepared/nesy4vrd/v1"
 augmentation_ontology = "raw/asserted-augmentation.ttl"
 compatibility_ontology = "raw/asserted-checker.ttl"
+augmentation_format = "turtle"
+compatibility_format = "turtle"
 mapping = "raw/mapping.json"
 closure_timeout_seconds = 30
 closure_max_triples = 1000000
@@ -50,6 +52,9 @@ expected_version = "REPLACE_WITH_MEASURED_VERSION"
 ```
 
 The raw filenames above are examples, not claims about the archive's contents.
+Choose `turtle`, `xml` (RDF/XML) or `nt` explicitly for each ontology; the default
+is Turtle regardless of suffix. Public VRD-World `.owl` files use Turtle. Source
+bytes are retained and their SHA-256 and serialization format are recorded.
 Measure closure limits and query throughput in the preparation pilot. Imports
 must be flattened into a pinned local ontology before preparation; moving remote
 imports fail. Keep separate asserted augmentation/checker files and record their
@@ -80,11 +85,33 @@ fail the artifact, with bounded retries. Successful decisions are resumable only
 under matching identities. A fresh stratified conformance sample is required for
 real acceptance. Offline test fakes do not establish real GraphDB conformance.
 
+The `witnessed_boolean_owlrl_rdf_v2` inventory admits structurally checked named
+classes, finite named-member unions/intersections and the supported object-property
+axioms, retaining inert annotations and datatype schema declarations. It rejects
+restrictions, malformed collections, arbitrary ABox assertions and unsupported
+logical constructs. Inspect `ontology-inventory.json` before expensive preparation.
+
+This is a partial OWL 2 RL/RDF rule contract. Union equivalence/domain axioms can
+fall outside the syntactic OWL 2 RL profile, and the rule engine does not perform
+disjunctive case analysis. A verified contradiction remains incompatible. Otherwise,
+if either fresh query individual belongs to a union without an entailed member
+type, the result is **unknown**, not compatible. Witnessed unions and intersections
+remain useful; the ontology is neither weakened nor discarded. The simple asserted
+filter still omits these Boolean class expressions. GraphDB verifies focused
+Boolean fixtures before accepting the actual background ontology and fresh query
+sample. Record unknown coverage and any lost semantic-supervision/filtering coverage
+in the campaign's preparation report. Structural admission of the public reference
+files does not recover historical ontology provenance or prove complete OWL reasoning.
+
 Frozen visual features use TorchVision ResNet-50 `IMAGENET1K_V2` only, with the
 pinned transform. Supply a local state dictionary and its measured digest in a
 weights manifest; do not use the moving `DEFAULT` alias. Extraction uses stored RGB
 orientation, floor/ceil clipped boxes, subject/object/union crop order and L2
 normalisation. It caches deterministic rows once across interventions/seeds. The
+encoder and bounded crop tensors use `training.device`; stored vectors are CPU
+FP32. Unavailable selected devices fail. The cache identity includes the actual
+device, hardware, package/runtime versions and numerical flags; changing that
+extraction environment requires a fresh cache. The
 real encoder integration test is opt-in and remains unverified until those weights
 and images are supplied. Fake-encoder tests verify crop and row semantics only.
 

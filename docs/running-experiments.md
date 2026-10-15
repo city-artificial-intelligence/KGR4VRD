@@ -4,6 +4,13 @@ The only supported entry point is `kgr4vrd` (`python -m kgr4vrd` is equivalent).
 The old scripts are historical references. The submitted paper is not modified.
 All commands below refer to the repository root unless an absolute path is shown.
 
+For GPU execution, first follow the [compute-node handoff](compute-node-handoff.md)
+and [CUDA environment guide](cuda-environment.md), including the remaining real
+integration gates in the [review update](implementation-review-2026-10-15.md).
+The locked installation below selects CPU-only PyTorch on Linux. CUDA commands use
+the installed environment directly and the `nesy4vrd-cuda.toml` / `campaign-cuda.toml`
+configuration pair; substitute those for the CPU examples below.
+
 ## Install and offline example
 
 Use Python 3.11 and the committed `uv.lock`. The tested local environment is Intel
@@ -30,7 +37,7 @@ The package itself does not require `uv` at runtime. To test a wheel separately:
 uv build
 uv venv /tmp/kgr4vrd-wheel --python 3.11
 uv export --locked --all-extras --no-dev --no-emit-project > /tmp/kgr4vrd-requirements.txt
-uv pip install --python /tmp/kgr4vrd-wheel/bin/python -r /tmp/kgr4vrd-requirements.txt
+uv pip install --python /tmp/kgr4vrd-wheel/bin/python --torch-backend cpu -r /tmp/kgr4vrd-requirements.txt
 uv pip install --python /tmp/kgr4vrd-wheel/bin/python --no-deps dist/*.whl
 cd /tmp
 /tmp/kgr4vrd-wheel/bin/kgr4vrd smoke --output /tmp/kgr4vrd-example
@@ -175,10 +182,10 @@ test use is an exploratory revision, not a replacement frozen plan.
 ```sh
 kgr4vrd verify --run artifacts/runs/RUN_ID
 kgr4vrd report --campaign artifacts/plan/campaign.json --output artifacts/report
-uv run --locked pytest -q
-uv run --locked ruff check src tests
-uv run --locked ruff format --check src tests
-uv run --locked mypy src/kgr4vrd
+python -m pytest -q
+python -m ruff check src tests
+python -m ruff format --check src tests
+python -m mypy src/kgr4vrd
 ```
 
 Re-evaluation needs raw scores, targets and immutable knowledge artifacts, but no

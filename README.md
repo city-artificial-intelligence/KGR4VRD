@@ -6,6 +6,11 @@ The supported implementation is [`src/kgr4vrd`](src/kgr4vrd), with one trainer,
 validation-only checkpoint selector and evaluator shared by the geometry and visual
 heads. The [five specifications](docs/specs/README.md) define its scientific contract.
 
+For a GPU node, start with the [compute-node handoff](docs/compute-node-handoff.md)
+and [pre-run review](docs/implementation-review-2026-10-15.md). Use the separate
+[locked CUDA environment](docs/cuda-environment.md) for GPU execution. The
+installation below selects CPU-only PyTorch on Linux.
+
 With Python 3.11 and [uv](https://docs.astral.sh/uv/):
 
 ```sh
@@ -54,6 +59,5 @@ The NeSy4VRD dataset package is available on the open-access digital repository 
 
 The **NeSy4VRD GitHub repository** hosts *(i)* code and related infrastructure that supports extensibility of NeSy4VRD, *(ii)* extensive documentation describing how to use the extensibility support features made available, and *(iii)* sample code.
 The NeSy4VRD GitHub repository is on [GitHub](https://github.com/djherron/NeSy4VRD).
-
 
 

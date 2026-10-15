@@ -1,0 +1,11 @@
+schema_version = "kgr4vrd.config/1"
+protocol_id = "nesy4vrd-corrected-v1"
+
+# All scientific defaults are shared with nesy4vrd.toml through config.DEFAULTS.
+# Complete acquired input paths before planning; see docs/data-preparation.md.
+[paths]
+data_root = "../data"
+artifact_root = "../artifacts"
+
+[training]
+device = "cuda"

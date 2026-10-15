@@ -18,7 +18,7 @@ jobs:
         run: |
           uv venv /tmp/kgr4vrd-wheel --python 3.11
           uv export --locked --all-extras --no-dev --no-emit-project > /tmp/kgr4vrd-requirements.txt
-          uv pip install --python /tmp/kgr4vrd-wheel/bin/python -r /tmp/kgr4vrd-requirements.txt
+          uv pip install --python /tmp/kgr4vrd-wheel/bin/python --torch-backend cpu -r /tmp/kgr4vrd-requirements.txt
           uv pip install --python /tmp/kgr4vrd-wheel/bin/python --no-deps dist/*.whl
           cd /tmp
           /tmp/kgr4vrd-wheel/bin/kgr4vrd --help

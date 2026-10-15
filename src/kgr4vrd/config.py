@@ -63,6 +63,8 @@ OPTIONAL_FIELDS = {
         "output_directory",
         "augmentation_ontology",
         "compatibility_ontology",
+        "augmentation_format",
+        "compatibility_format",
         "mapping",
         "closure_timeout_seconds",
         "closure_max_triples",
@@ -187,6 +189,9 @@ def validate_config(raw: dict) -> dict:
     sources = config.get("preparation", {}).get("sources", {})
     if not isinstance(sources, dict) or set(sources) - SOURCE_FIELDS:
         raise ValueError("Unknown preparation source fields")
+    for key in ("augmentation_format", "compatibility_format"):
+        if config.get("preparation", {}).get(key, "turtle") not in {"turtle", "xml", "nt"}:
+            raise ValueError(f"preparation.{key} must be turtle, xml or nt")
     return config
 
 

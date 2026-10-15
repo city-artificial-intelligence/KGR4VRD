@@ -1,0 +1,24 @@
+# Synthetic VRD-World-style schema, deliberately Turtle in a .owl file.
+@prefix ex: <urn:kgr4vrd:boolean:> .
+@prefix owl: <http://www.w3.org/2002/07/owl#> .
+@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+@prefix xsd: <http://www.w3.org/2001/XMLSchema#> .
+@prefix dc: <http://purl.org/dc/terms/> .
+dc:title a owl:AnnotationProperty .
+ex:ontology a owl:Ontology ; dc:title "Synthetic Boolean schema" .
+ex:coordinate a owl:DatatypeProperty, owl:FunctionalProperty ; rdfs:range xsd:integer .
+ex:Union owl:equivalentClass [ a owl:Class ; owl:unionOf (ex:A ex:B) ] .
+ex:Intersection owl:equivalentClass [ a owl:Class ; owl:intersectionOf (ex:A ex:B) ] .
+ex:Both rdfs:subClassOf ex:A, ex:B .
+ex:NotA owl:disjointWith ex:A .
+ex:Neither owl:disjointWith ex:A, ex:B .
+ex:Intersection owl:disjointWith ex:Forbidden .
+ex:rangeUnion rdfs:range ex:Union .
+ex:domainIntersection rdfs:domain ex:Intersection .
+ex:domainForbidden rdfs:domain ex:Forbidden .
+ex:directUnion rdfs:domain [ owl:unionOf (ex:A ex:B) ] .
+ex:symmetric a owl:SymmetricProperty .
+# Flat syntax with a named member that itself defines another union.
+ex:Outer owl:equivalentClass [ owl:unionOf (ex:Inner ex:B) ] .
+ex:Inner owl:equivalentClass [ owl:unionOf (ex:C ex:D) ] .
+ex:rangeOuter rdfs:range ex:Outer .

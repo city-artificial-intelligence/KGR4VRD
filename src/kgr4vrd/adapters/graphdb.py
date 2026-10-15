@@ -157,8 +157,10 @@ class GraphDB:
         except (ValueError, UnicodeError) as error:
             raise ReasonerError("Malformed GraphDB JSON response") from error
 
-    def ask(self, query: str) -> bool:
-        result = self._json(self.url + "?" + urlencode({"query": query, "infer": "false"}))
+    def ask(self, query: str, *, infer: bool = False) -> bool:
+        result = self._json(
+            self.url + "?" + urlencode({"query": query, "infer": str(infer).lower()})
+        )
         if type(result.get("boolean")) is not bool:
             raise ReasonerError("Malformed GraphDB ASK response")
         return result["boolean"]
@@ -183,20 +185,87 @@ class GraphDB:
             allow_inconsistent=True,
         )
 
-    def _temporary(self, graph: Graph) -> tuple[Decision, dict]:
+    def _unwitnessed_union(self, individuals: tuple[URIRef, ...]) -> bool:
+        values = " ".join(individual.n3() for individual in individuals)
+        query = f"""ASK {{
+            VALUES ?individual {{ {values} }}
+            ?individual <{RDF.type}> ?union .
+            ?union <{OWL.unionOf}> ?head .
+            FILTER NOT EXISTS {{
+                ?head <{RDF.rest}>*/<{RDF.first}> ?member .
+                ?individual <{RDF.type}> ?member .
+            }}
+        }}"""
+        return self.ask(query, infer=True)
+
+    def _temporary(
+        self, graph: Graph, *, individuals: tuple[URIRef, ...] = ()
+    ) -> tuple[Decision, dict]:
         context = "urn:kgr4vrd:query:" + uuid.uuid4().hex
         self.contexts.add(context)
         try:
             response = self._insert(graph, context)
             reason = inconsistency_reason(response)
-            return (Decision.INCOMPATIBLE if reason else Decision.COMPATIBLE), {
-                "reason": reason or "consistent_under_verified_ruleset",
+            decision = Decision.INCOMPATIBLE if reason else Decision.COMPATIBLE
+            if not reason and individuals and self._unwitnessed_union(individuals):
+                decision, reason = Decision.UNKNOWN, "union_without_member_witness"
+            return decision, {
+                "reason": reason or "consistent_under_verified_ruleset_with_union_witnesses",
                 "response_digest": hashlib.sha256(response.body).hexdigest(),
             }
         finally:
             # Even an ambiguous timeout is followed by cleanup; cleanup failure aborts the build.
             self.cleanup(context)
             self.contexts.remove(context)
+
+    def _verify_boolean_profile(self) -> list[dict]:
+        """Exercise materialized unions/intersections and the partial-union guard live."""
+        schema = Graph().parse(
+            data="""
+            @prefix ex: <urn:kgr4vrd:boolean-verification:> .
+            @prefix owl: <http://www.w3.org/2002/07/owl#> .
+            @prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .
+            ex:Union owl:equivalentClass [ owl:unionOf (ex:A ex:B) ] .
+            ex:Intersection owl:equivalentClass [ owl:intersectionOf (ex:A ex:B) ] .
+            ex:Both rdfs:subClassOf ex:A, ex:B .
+            ex:NotA owl:disjointWith ex:A .
+            ex:Neither owl:disjointWith ex:A, ex:B .
+            ex:Intersection owl:disjointWith ex:Forbidden .
+            ex:rangeUnion rdfs:range ex:Union .
+            ex:domainIntersection rdfs:domain ex:Intersection .
+            ex:domainForbidden rdfs:domain ex:Forbidden .
+        """,
+            format="turtle",
+        )
+        ns = Namespace("urn:kgr4vrd:boolean-verification:")
+        cases = [
+            (ns.A, ns.rangeUnion, ns.B, {Decision.COMPATIBLE}),
+            (ns.A, ns.rangeUnion, ns.Unknown, {Decision.UNKNOWN}),
+            (ns.A, ns.rangeUnion, ns.Neither, {Decision.UNKNOWN, Decision.INCOMPATIBLE}),
+            (ns.Both, ns.domainForbidden, ns.A, {Decision.INCOMPATIBLE}),
+            (ns.NotA, ns.domainIntersection, ns.A, {Decision.INCOMPATIBLE}),
+        ]
+        evidence = []
+        for subject, predicate, obj, expected in cases:
+            graph = Graph()
+            for triple in schema:
+                graph.add(triple)
+            graph.add((ns.a, RDF.type, subject))
+            graph.add((ns.b, RDF.type, obj))
+            graph.add((ns.a, predicate, ns.b))
+            outcome, reason = self._temporary(graph, individuals=(ns.a, ns.b))
+            if outcome not in expected:
+                raise ReasonerError(
+                    f"Boolean profile fixture failed for {subject}, {predicate}, {obj}"
+                )
+            evidence.append(
+                {
+                    "query": list(map(str, (subject, predicate, obj))),
+                    "decision": int(outcome),
+                    **reason,
+                }
+            )
+        return evidence
 
     def verify(self, ontology: Graph) -> dict:
         """Check actual configuration and positive/negative fixtures before loading schema."""
@@ -251,6 +320,7 @@ class GraphDB:
             raise ReasonerError(
                 "Known inconsistent fixture accepted: consistency checker is not verified"
             )
+        boolean_evidence = self._verify_boolean_profile()
         context = "urn:kgr4vrd:schema:" + uuid.uuid4().hex
         self.contexts.add(context)
         response = self._insert(ontology, context)
@@ -264,6 +334,8 @@ class GraphDB:
             "version": version["productVersion"],
             "ruleset": self.config["ruleset"],
             "consistency_fixture": evidence,
+            "boolean_profile_fixture": boolean_evidence,
+            "compatibility_policy": "verified_rl_contradictions_else_require_union_member_witness",
             "query_scope": "independent_typed_relation",
         }
         return self.metadata
@@ -278,7 +350,7 @@ class GraphDB:
         graph.add((fresh.a, RDF.type, URIRef(subject_class)))
         graph.add((fresh.b, RDF.type, URIRef(object_class)))
         graph.add((fresh.a, URIRef(predicate), fresh.b))
-        return self._temporary(graph)
+        return self._temporary(graph, individuals=(fresh.a, fresh.b))
 
     def close(self) -> None:
         for context in tuple(self.contexts):

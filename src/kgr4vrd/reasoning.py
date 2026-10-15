@@ -11,7 +11,7 @@ from typing import Callable, Iterable
 
 import numpy as np
 from owlrl import OWLRL_Semantics
-from rdflib import OWL, RDF, RDFS, Graph, Namespace, URIRef
+from rdflib import OWL, RDF, RDFS, XSD, BNode, Graph, Namespace, URIRef
 from rdflib.compare import to_canonical_graph
 from rdflib.term import Node
 
@@ -145,9 +145,11 @@ def graph_digest(graph: Graph) -> str:
     )
 
 
-def load_ontology(path: str | Path) -> Graph:
-    """Load a local ontology with an already resolved, pinned import closure."""
-    graph = Graph().parse(Path(path))
+def load_ontology(path: str | Path, *, format: str = "turtle") -> Graph:
+    """Parse explicit local RDF serialization; suffixes never determine semantics."""
+    if format not in {"turtle", "xml", "nt"}:
+        raise ValueError("Ontology format must be turtle, xml or nt")
+    graph = Graph().parse(Path(path), format=format)
     if list(graph.triples((None, OWL.imports, None))):
         raise ValueError(
             "Resolve and flatten owl:imports into a pinned local ontology before preparation"
@@ -487,6 +489,27 @@ def check_conformance(
             if strata[stratum]:
                 keys.append(strata[stratum].pop(0))
     records = []
+    unknown_records = []
+    for s, p, o in np.argwhere(table.decisions == Decision.UNKNOWN):
+        iris = (
+            vocabulary.object_classes[s].get("ontology_iri"),
+            vocabulary.predicates[p].get("ontology_iri"),
+            vocabulary.object_classes[o].get("ontology_iri"),
+        )
+        if not all(iris):
+            continue
+        result, evidence = backend(*iris)
+        if result != Decision.UNKNOWN:
+            raise ValueError(f"Fresh checker disagrees with unknown decision at {(s, p, o)}")
+        unknown_records.append(
+            {
+                "key": list(map(int, (s, p, o))),
+                "decision": int(result),
+                "reason": evidence["reason"],
+            }
+        )
+        if len(unknown_records) >= sample_size:
+            break
     for s, p, o in keys:
         result, _ = backend(
             vocabulary.object_classes[s]["ontology_iri"],
@@ -498,6 +521,8 @@ def check_conformance(
         records.append({"key": [s, p, o], "decision": int(result)})
     return {
         "sample": records,
+        "mapped_unknown_sample": unknown_records,
+        "mapped_unknown_sample_count": len(unknown_records),
         "sample_count": len(records),
         "required_sample_count": sample_size,
         "status": "passed" if len(records) >= sample_size else "insufficient_available_queries",
@@ -505,24 +530,76 @@ def check_conformance(
     }
 
 
+def _reserved_iri(value: Node | str) -> bool:
+    return any(str(value).startswith(str(namespace)) for namespace in (RDF, RDFS, OWL, XSD))
+
+
+def _named_class_list(ontology: Graph, head: Node) -> tuple[list[URIRef], set[Node]]:
+    """Validate the finite, flat collection syntax actually used by VRD-World."""
+    members: list[URIRef] = []
+    nodes: set[Node] = set()
+    while head != RDF.nil:
+        if not isinstance(head, BNode) or head in nodes:
+            raise ValueError("Class collection must be an acyclic blank-node RDF list")
+        nodes.add(head)
+        first, rest = (
+            list(ontology.objects(head, RDF.first)),
+            list(ontology.objects(head, RDF.rest)),
+        )
+        if len(first) != 1 or len(rest) != 1 or not isinstance(first[0], URIRef):
+            raise ValueError(
+                "Class collection requires one named member and one rest link per cell"
+            )
+        if _reserved_iri(first[0]) and first[0] != OWL.Nothing:
+            raise ValueError("Reserved vocabulary cannot define a task class expression")
+        members.append(first[0])
+        head = rest[0]
+    if len(members) < 2:
+        raise ValueError("Class collection requires at least two named members")
+    return members, nodes
+
+
 def ontology_inventory(ontology: Graph) -> dict:
-    """Conservative supported named-class/object-property profile; reject other semantics."""
-    supported_predicates = {
-        RDF.type,
-        RDFS.subClassOf,
-        RDFS.subPropertyOf,
-        RDFS.domain,
-        RDFS.range,
-        OWL.equivalentClass,
-        OWL.equivalentProperty,
-        OWL.inverseOf,
-        OWL.disjointWith,
-        OWL.propertyDisjointWith,
-        OWL.members,
-        RDF.first,
-        RDF.rest,
-    }
-    annotations = {
+    """Admit a structurally checked Boolean/RL fragment, not arbitrary OWL graphs.
+
+    Union equivalence/domain axioms are retained under RL/RDF rule semantics.
+    The compatibility adapter must withhold COMPATIBLE for unwitnessed unions;
+    OWLRL alone cannot decide contradictions requiring disjunctive case analysis.
+    """
+    expression_nodes: set[Node] = set()
+    list_nodes: set[Node] = set()
+    expressions: list[dict] = []
+    malformed: list[list[str]] = []
+    for subject in set(ontology.subjects(OWL.unionOf)) | set(ontology.subjects(OWL.intersectionOf)):
+        definitions = [
+            (p, o) for p in (OWL.unionOf, OWL.intersectionOf) for o in ontology.objects(subject, p)
+        ]
+        try:
+            if len(definitions) != 1 or not isinstance(subject, (URIRef, BNode)):
+                raise ValueError(
+                    "Class expression must have exactly one union/intersection definition"
+                )
+            definition_predicate, head = definitions[0]
+            if _reserved_iri(subject):
+                raise ValueError("Reserved vocabulary cannot define a task class expression")
+            members, nodes = _named_class_list(ontology, head)
+            expression_nodes.add(subject)
+            list_nodes.update(nodes)
+            expressions.append(
+                {"operator": str(definition_predicate), "members": list(map(str, members))}
+            )
+        except ValueError as error:
+            malformed.append([str(subject), "malformed_class_expression", str(error)])
+    for group in ontology.subjects(RDF.type, OWL.AllDisjointClasses):
+        heads = list(ontology.objects(group, OWL.members))
+        try:
+            if len(heads) != 1:
+                raise ValueError("AllDisjointClasses requires one member list")
+            _, nodes = _named_class_list(ontology, heads[0])
+            list_nodes.update(nodes)
+        except ValueError as error:
+            malformed.append([str(group), "malformed_disjoint_collection", str(error)])
+    annotations: set[Node] = {
         RDFS.label,
         RDFS.comment,
         RDFS.seeAlso,
@@ -532,6 +609,51 @@ def ontology_inventory(ontology: Graph) -> dict:
         OWL.priorVersion,
         OWL.backwardCompatibleWith,
         OWL.incompatibleWith,
+    }
+    declared_annotations = set(ontology.subjects(RDF.type, OWL.AnnotationProperty))
+    data_properties = set(ontology.subjects(RDF.type, OWL.DatatypeProperty))
+    annotation_conflicts = declared_annotations & (
+        data_properties | set(ontology.subjects(RDF.type, OWL.ObjectProperty))
+    )
+    annotation_conflicts.update(
+        p
+        for p in declared_annotations
+        if any(str(p).startswith(str(ns)) for ns in (RDF, RDFS, OWL))
+    )
+    # An annotation ceases to be inert if any rule can use it as a logical property.
+    logical_property_edges = {
+        RDFS.subPropertyOf,
+        OWL.equivalentProperty,
+        OWL.inverseOf,
+        OWL.propertyDisjointWith,
+    }
+    logical_property_roles = set(data_properties) | set(
+        ontology.subjects(RDF.type, OWL.ObjectProperty)
+    )
+    for subject, predicate, obj in ontology:
+        if predicate in logical_property_edges:
+            logical_property_roles.update((subject, obj))
+        elif predicate in {RDFS.domain, RDFS.range}:
+            logical_property_roles.add(subject)
+        elif predicate == RDF.type and obj in {
+            OWL.SymmetricProperty,
+            OWL.TransitiveProperty,
+            OWL.AsymmetricProperty,
+            OWL.IrreflexiveProperty,
+            OWL.FunctionalProperty,
+            OWL.InverseFunctionalProperty,
+        }:
+            logical_property_roles.add(subject)
+    reserved_property_roles = {role for role in logical_property_roles if _reserved_iri(role)}
+    annotation_conflicts.update((annotations | declared_annotations) & logical_property_roles)
+    annotations.difference_update(annotation_conflicts)
+    annotations.update(declared_annotations - annotation_conflicts)
+    class_edges = {RDFS.subClassOf, OWL.equivalentClass}
+    property_edges = {
+        RDFS.subPropertyOf,
+        OWL.equivalentProperty,
+        OWL.inverseOf,
+        OWL.propertyDisjointWith,
     }
     supported_types = {
         OWL.Class,
@@ -546,24 +668,83 @@ def ontology_inventory(ontology: Graph) -> dict:
         OWL.FunctionalProperty,
         OWL.InverseFunctionalProperty,
         OWL.AllDisjointClasses,
+        OWL.AnnotationProperty,
+        OWL.DatatypeProperty,
     }
-    unsupported = []
+    unsupported = list(malformed)
+    annotation_count = 0
+
+    def class_node(node: Node) -> bool:
+        return (
+            isinstance(node, URIRef)
+            and (not _reserved_iri(node) or node in {OWL.Thing, OWL.Nothing})
+        ) or node in expression_nodes
+
     for subject, predicate, obj in ontology:
+        accepted = False
         if predicate in annotations:
-            continue
-        if predicate not in supported_predicates or (
-            predicate == RDF.type and obj not in supported_types
+            annotation_count += 1
+            accepted = True
+        elif predicate == RDF.type:
+            accepted = obj in supported_types and subject not in annotation_conflicts
+        elif predicate in class_edges:
+            accepted = class_node(subject) and class_node(obj)
+        elif predicate in {RDFS.domain, RDFS.range}:
+            accepted = isinstance(subject, URIRef) and (
+                class_node(obj)
+                or (
+                    subject in data_properties
+                    and predicate == RDFS.range
+                    and str(obj).startswith(str(XSD))
+                )
+            )
+        elif predicate in property_edges:
+            accepted = isinstance(subject, URIRef) and isinstance(obj, URIRef)
+        elif predicate == OWL.disjointWith:
+            accepted = (
+                isinstance(subject, URIRef)
+                and isinstance(obj, URIRef)
+                and class_node(subject)
+                and class_node(obj)
+            )
+        elif predicate in {OWL.unionOf, OWL.intersectionOf}:
+            accepted = subject in expression_nodes
+        elif predicate == OWL.members:
+            accepted = (subject, RDF.type, OWL.AllDisjointClasses) in ontology and obj in list_nodes
+        elif predicate in {RDF.first, RDF.rest}:
+            accepted = subject in list_nodes
+        if subject in reserved_property_roles or (
+            predicate in logical_property_edges and obj in reserved_property_roles
         ):
-            unsupported.append([str(subject), str(predicate), str(obj)])
-        elif predicate in {RDFS.subClassOf, RDFS.domain, RDFS.range, OWL.equivalentClass} and not (
-            isinstance(subject, URIRef) and isinstance(obj, URIRef)
+            accepted = False
+        if (
+            subject in annotation_conflicts
+            or predicate in annotation_conflicts
+            or (predicate in logical_property_edges and obj in annotation_conflicts)
         ):
+            accepted = False
+        if OWL.Thing in (subject, obj) and not (
+            (predicate == RDFS.subClassOf and obj == OWL.Thing)
+            or (subject == OWL.Thing and predicate == RDF.type and obj == OWL.Class)
+        ):
+            accepted = False  # Nonempty-domain/global satisfiability is outside this fragment.
+        if not accepted:
             unsupported.append([str(subject), str(predicate), str(obj)])
     return {
-        "profile": "named_class_object_property_owlrl_v1",
+        "profile": "witnessed_boolean_owlrl_rdf_v2",
         "triple_count": len(ontology),
-        "supported_predicates": sorted(map(str, supported_predicates)),
+        "class_expressions": sorted(expressions, key=canonical_digest),
+        "annotation_triple_count": annotation_count,
+        "datatype_schema_properties": sorted(map(str, data_properties)),
         "unsupported_constructs": sorted(unsupported),
+        "compatibility_policy": "verified_rl_contradictions_else_require_union_member_witness",
+        "semantics": "OWL 2 RL/RDF rules with partial witnessed Boolean compatibility",
+        "limitations": [
+            "Union equivalences/domains need not satisfy the syntactic OWL 2 RL profile.",
+            "Unwitnessed union membership is unknown; no disjunctive case analysis is implemented.",
+            "Datatype schema is retained; literal assertions, restrictions and arbitrary ABox data are unsupported.",
+            "Structural admission and local OWLRL fixtures do not establish real GraphDB conformance.",
+        ],
     }
 
 
@@ -608,6 +789,8 @@ def _mapped_vocabulary(path: Path, vocabulary: Vocabulary) -> tuple[Vocabulary, 
             raise ValueError("Invalid ontology IRI")
         if relation == "exact" and not iri:
             raise ValueError("Exact mapping requires a nonempty ontology IRI")
+        if iri and _reserved_iri(iri):
+            raise ValueError("Task mappings cannot target reserved RDF/RDFS/OWL/XSD vocabulary")
         entries[kind][label_id]["ontology_iri"] = iri
     if len(seen) != sum(map(len, entries.values())):
         raise ValueError("Mapping must explicitly cover every canonical class and predicate")
@@ -683,8 +866,8 @@ def _prepare_reasoning(config: dict) -> Path:
     checker_path = root / preparation["compatibility_ontology"]
     augmentation_source = root / preparation["augmentation_ontology"]
     ontology, augmentation_ontology = (
-        load_ontology(checker_path),
-        load_ontology(augmentation_source),
+        load_ontology(checker_path, format=preparation.get("compatibility_format", "turtle")),
+        load_ontology(augmentation_source, format=preparation.get("augmentation_format", "turtle")),
     )
     inventories = {
         "compatibility": ontology_inventory(ontology),
@@ -695,6 +878,16 @@ def _prepare_reasoning(config: dict) -> Path:
         raise ValueError(
             "Unsupported ontology constructs; inspect ontology-inventory.json before defining a new profile"
         )
+    for source_ontology in (ontology, augmentation_ontology):
+        non_object_properties = set(source_ontology.subjects(RDF.type, OWL.DatatypeProperty)) | set(
+            source_ontology.subjects(RDF.type, OWL.AnnotationProperty)
+        )
+        if any(
+            URIRef(entry["ontology_iri"]) in non_object_properties
+            for entry in mapped.predicates
+            if entry.get("ontology_iri")
+        ):
+            raise ValueError("Task predicates cannot map to datatype or annotation properties")
     train_scenes, raw = load_objects(dataset_path, "train"), load_relations(dataset_path, "train")
     class_pairs: set[tuple[int, int]] = set()
     for split in ("train", "validation", "test"):
@@ -713,8 +906,10 @@ def _prepare_reasoning(config: dict) -> Path:
         metadata = {
             **backend_identity,
             "ontology_digest": file_digest(checker_path),
+            "serialization_format": preparation.get("compatibility_format", "turtle"),
             "mapping_digest": mapping_digest,
             "inventory": inventories["compatibility"],
+            "compatibility_policy": "verified_rl_contradictions_else_require_union_member_witness",
         }
         table = prepare_compatibility(
             mapped,
@@ -807,6 +1002,8 @@ def _prepare_reasoning(config: dict) -> Path:
         **profile,
         "mapping_digest": mapping_digest,
         "source_sha256": file_digest(augmentation_source),
+        "serialization_format": preparation.get("augmentation_format", "turtle"),
+        "inventory": inventories["augmentation"],
         "relations": {
             "path": "relations.jsonl",
             "sha256": file_digest(augmentation_path.parent / "relations.jsonl"),

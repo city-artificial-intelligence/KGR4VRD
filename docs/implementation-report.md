@@ -3,6 +3,55 @@
 Date: 15 October 2026. This report distinguishes executable software, synthetic
 verification, external integration acceptance and the unperformed research campaign.
 
+## Node-review follow-up — 16 October 2026
+
+The [four review findings](implementation-review-2026-10-15.md) received focused
+software corrections on `codex/dev-node-experiments`: explicit RDF formats,
+structural Boolean/RL admission with selective unknown outcomes, reproducible
+CUDA dependency/configuration profiles, and actual-device visual extraction with
+environment-bound caches. The [node handoff](compute-node-handoff.md) defines the
+remaining integration and pilot sequence; the five specifications are unchanged.
+
+The public VRD-World snapshots can be structurally inventoried without deleting
+axioms. Their union expressions require the documented partial RL/RDF policy;
+this does not prove general OWL consistency or recover historical variants.
+GraphDB checks Boolean fixtures and samples fresh queries before campaign
+admission. Unknown coverage must be measured on the acquired ontologies.
+
+The two Linux CUDA locks retain the registered torch/torchvision versions and
+the common CPU-lock dependencies. Cross-platform resolver dry runs pass for
+CUDA 11.8 and 12.1; no GPU binaries were executed on this Intel macOS host.
+The CUDA base expands to the CPU base with only `training.device` changed.
+Opt-in node tests exercise actual crop kernels, both FP32 heads and exact resume
+across semantic activation under the production numerical flags and the documented
+cuBLAS workspace. These checks remain skipped locally, alongside real GraphDB and
+the acquired encoder check. Their existence is not GPU/backend acceptance.
+
+Preservation was rechecked against the starting inventory: all 32 specification
+and research files and all 53 archived scripts are unchanged. The 25 research
+files (excluding `.DS_Store`) are now included in the requested Git handoff.
+The dated evidence below remains the original implementation record.
+
+Follow-up verification: **106 passed, 7 explicit integration skips** (five CUDA,
+one real GraphDB, one acquired encoder); Ruff lint/format, mypy over all 22 source
+files, locked dependency checks and Git whitespace checks pass. The 611 warnings
+are dependency deprecations from RDFLib/Matplotlib's Pyparsing calls. Both CUDA
+locks and the clean-wheel Linux CPU install command resolve in target-platform
+dry runs. The latter now explicitly selects the CPU PyTorch index in CI.
+
+A fresh wheel environment completed the offline four-condition smoke from
+`/private/tmp` with Internet socket connections blocked. All four run manifests,
+four saved-score artifacts and eight evaluations verified; regenerating the report
+preserved the records/values in all seven CSV tables and figure-data files.
+Wheel sources match the checkout. Wheel/sdist builds pass, and the source archive
+includes the CUDA locks while excluding research files and generated artifacts.
+
+The active package is now **5,494 nonblank Python lines**, still 19 substantive
+modules and five direct core dependencies. The existing size rationale below
+continues to apply; these corrections add no second trainer or reasoning engine.
+Local verification records are under `artifacts/verification/review-2026-10-16/`;
+generated artifacts remain outside Git.
+
 ## Implemented software
 
 The installable `src/kgr4vrd` package provides canonical NeSy4VRD conversion,

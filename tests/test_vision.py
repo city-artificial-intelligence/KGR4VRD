@@ -4,6 +4,7 @@ import copy
 import os
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -29,7 +30,7 @@ class SizeEncoder(torch.nn.Module):
         self.batch_sizes = []
 
     def forward(self, batch):
-        assert not self.training and not torch.is_grad_enabled()
+        assert not self.training and torch.is_inference_mode_enabled()
         self.batch_sizes.append(len(batch))
         vectors = torch.zeros((len(batch), 2048), dtype=torch.float32)
         vectors[:, :2] = batch
@@ -151,6 +152,10 @@ def test_preparation_reuses_verified_cache_without_reading_any_relation_labels(
     assert file_digest(path) == first_digest and encoder.batch_sizes == first_batches
     assert len(loads) == 1
     record = read_json(path)
+    environment = record["identity"]["environment"]
+    assert environment["selected_device"] == environment["device"] == "cpu"
+    assert environment["torch"] == torch.__version__
+    assert environment["hardware"]["machine"]
     assert set(record["images"]) == set(scenes)
     assert record["crop_rule"] == vision.CROP_RULE
     vocabulary = load_vocabulary(dataset_path)
@@ -168,6 +173,85 @@ def test_preparation_reuses_verified_cache_without_reading_any_relation_labels(
     assert vision.load_visual_features(
         path, empty, vocabulary, geometry_features(empty, vocabulary)
     ).shape == (0, assembled.shape[1])
+
+
+def test_selected_device_routes_encoder_and_bounded_batches_and_invalidates_cache(
+    tmp_path, monkeypatch
+):
+    config, _, _, encoder, _ = visual_fixture(tmp_path, monkeypatch)
+    config["training"]["device"] = "cuda"
+    device, moves = torch.device("cuda:1"), []
+    _, environment = vision._extraction_device("cpu")
+    environment.update(selected_device="cuda", device=str(device))
+    monkeypatch.setattr(vision, "_extraction_device", lambda selected: (device, environment))
+
+    def move_encoder(*, device, dtype):
+        moves.append(("encoder", device, dtype))
+        return encoder
+
+    original_to = torch.Tensor.to
+
+    def move_tensor(tensor, *args, **kwargs):
+        if kwargs.get("device") == device:
+            moves.append(("batch", device, kwargs["dtype"]))
+            assert len(tensor) <= config["visual"]["crop_batch_size"]
+            assert not torch.is_grad_enabled()
+            # This CPU regression observes routing without pretending to run CUDA.
+            kwargs["device"] = "cpu"
+        return original_to(tensor, *args, **kwargs)
+
+    monkeypatch.setattr(encoder, "to", move_encoder)
+    monkeypatch.setattr(torch.Tensor, "to", move_tensor)
+    path = vision.prepare_features(config)
+    assert moves[0] == ("encoder", device, torch.float32)
+    assert [row[0] for row in moves[1:]] == ["batch"] * len(encoder.batch_sizes)
+    assert len(moves) > 1
+    record = read_json(path)
+    assert record["identity"]["environment"] == environment
+    for item in record["images"].values():
+        with np.load(path.parent / item["shard"]["path"], allow_pickle=False) as shard:
+            assert shard["features"].dtype == np.float32
+    environment["device"] = "cuda:0"
+    with pytest.raises(ValueError, match="different inputs"):
+        vision.prepare_features(config)
+
+
+def test_device_environment_resolves_actual_cuda_hardware(monkeypatch):
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(
+        torch, "empty", lambda *args, **kwargs: SimpleNamespace(device=torch.device("cuda:1"))
+    )
+    queried = []
+
+    def properties(device):
+        queried.append(device)
+        return SimpleNamespace(
+            name="fake routing GPU",
+            major=7,
+            minor=5,
+            total_memory=8_000_000_000,
+            multi_processor_count=46,
+        )
+
+    monkeypatch.setattr(torch.cuda, "get_device_properties", properties)
+    device, environment = vision._extraction_device("cuda")
+    assert device == torch.device("cuda:1") and queried == [device]
+    assert environment["selected_device"] == "cuda" and environment["device"] == "cuda:1"
+    assert environment["hardware"]["accelerator"]["capability"] == [7, 5]
+    assert environment["hardware"]["accelerator"]["name"] == "fake routing GPU"
+    assert {"torchvision", "cuda", "cudnn", "deterministic_algorithms"} <= environment.keys()
+
+
+@pytest.mark.parametrize("device", ["cuda", "mps"])
+def test_unavailable_selected_device_never_falls_back_to_cpu(tmp_path, monkeypatch, device):
+    config, _, _, encoder, loads = visual_fixture(tmp_path, monkeypatch)
+    config["training"]["device"] = device
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)
+    monkeypatch.setattr(torch.backends.mps, "is_available", lambda: False)
+    with pytest.raises(RuntimeError, match=f"device '{device}' is unavailable"):
+        vision.prepare_features(config)
+    assert loads == [] and encoder.batch_sizes == []
+    assert not data_path(config, config["visual"]["features_manifest"]).exists()
 
 
 def test_visual_cache_rejects_changed_weights_transform_boxes_and_partial_shards(
@@ -266,6 +350,9 @@ def test_real_pinned_encoder_cache_is_repeatable(tmp_path):
     assert file_digest(first) == digest
     manifest = read_json(first)
     assert manifest["crop_rule"] == vision.CROP_RULE and manifest["normalisation"] == "l2_eps_1e-12"
+    environment = manifest["identity"]["environment"]
+    assert environment["selected_device"] == config["training"]["device"]
+    assert torch.device(environment["device"]).type == config["training"]["device"]
     config["visual"]["features_manifest"] = str(tmp_path / "repeat-features/manifest.json")
     second = vision.prepare_features(config)
     repeated = read_json(second)
@@ -281,3 +368,40 @@ def test_real_pinned_encoder_cache_is_repeatable(tmp_path):
                 atol=1e-6,
                 rtol=1e-5,
             )
+
+
+@pytest.mark.integration
+@pytest.mark.skipif(
+    os.environ.get("KGR4VRD_CUDA_TEST") != "1",
+    reason="KGR4VRD_CUDA_TEST=1 and an actual CUDA device are required",
+)
+def test_real_cuda_crop_extraction_and_trainable_head():
+    """Actual CUDA kernels, distinct from the separately opted-in pretrained encoder."""
+    device, environment = vision._extraction_device("cuda")
+    assert device.type == "cuda" and environment["hardware"]["accelerator"]["total_memory"] > 0
+    encoder = torch.nn.Sequential(
+        torch.nn.AdaptiveAvgPool2d(1), torch.nn.Flatten(), torch.nn.Linear(3, 2048)
+    ).to(device)
+    encoder.requires_grad_(False)
+    observed = []
+    encoder.register_forward_pre_hook(
+        lambda module, arguments: observed.append((arguments[0].device, torch.is_grad_enabled()))
+    )
+
+    def transform(crop):
+        return torch.from_numpy(np.array(crop.resize((8, 8)), dtype=np.float32)).permute(2, 0, 1)
+
+    scene, image = fractional_scene(), Image.new("RGB", (10, 8), (17, 43, 91))
+    first = vision.extract_crops(scene, image, encoder, transform, 2, device=device)
+    second = vision.extract_crops(scene, image, encoder, transform, 2, device=device)
+    np.testing.assert_allclose(first["features"], second["features"], rtol=1e-5, atol=1e-6)
+    assert first["features"].dtype == np.float32
+    assert observed == [(device, False)] * 4
+    assert all(parameter.grad is None for parameter in encoder.parameters())
+    visual = first["features"][first["pair_crops"]].reshape(2, 6144)
+    inputs = torch.from_numpy(visual).to(device)
+    head = torch.nn.Linear(6144, 3).to(device)
+    head(inputs).square().mean().backward()
+    assert head.weight.grad is not None and head.weight.grad.device == device
+    assert torch.isfinite(head.weight.grad).all()
+    torch.cuda.synchronize(device)

@@ -73,9 +73,15 @@ def crop_layout(scene: Scene) -> tuple[np.ndarray, np.ndarray]:
 
 
 def extract_crops(
-    scene: Scene, image: Image.Image, encoder: Any, transform: Any, batch_size: int
+    scene: Scene,
+    image: Image.Image,
+    encoder: Any,
+    transform: Any,
+    batch_size: int,
+    *,
+    device: torch.device | str = "cpu",
 ) -> dict[str, np.ndarray]:
-    """Encode bounded batches; fake encoders can exercise exactly the same path."""
+    """Encode bounded batches on the encoder's device; persist normalised CPU FP32."""
     if type(batch_size) is not int or batch_size < 1:
         raise ValueError("crop_batch_size must be a positive integer")
     if image.size != (scene.width, scene.height):
@@ -88,7 +94,7 @@ def extract_crops(
         for start in range(0, len(boxes), batch_size):
             batch = torch.stack(
                 [transform(image.crop(tuple(box))) for box in boxes[start : start + batch_size]]
-            )
+            ).to(device=device, dtype=torch.float32)
             encoded = encoder(batch).to(dtype=torch.float32, device="cpu")
             if encoded.shape != (len(batch), 2048) or not torch.isfinite(encoded).all():
                 raise ValueError("Encoder must produce finite [N,2048] vectors")
@@ -99,6 +105,51 @@ def extract_crops(
         "features": vectors,
         "pair_crops": indices,
         "pair_ids": np.asarray(build_pairs(scene), dtype=np.str_).reshape(-1, 2),
+    }
+
+
+def _extraction_device(selected: str) -> tuple[torch.device, dict[str, Any]]:
+    """Resolve the requested device by allocation, never by silently falling back."""
+    requested = torch.device(selected)
+    if requested.type not in {"cpu", "cuda", "mps"}:
+        raise ValueError(f"Unsupported visual extraction device: {selected}")
+    if requested.type == "cuda" and not torch.cuda.is_available():
+        raise RuntimeError(f"Requested visual extraction device {selected!r} is unavailable")
+    if requested.type == "mps" and not torch.backends.mps.is_available():
+        raise RuntimeError(f"Requested visual extraction device {selected!r} is unavailable")
+    try:
+        device = torch.empty(1, device=requested).device
+    except RuntimeError as exc:
+        raise RuntimeError(f"Cannot allocate on visual extraction device {selected!r}") from exc
+    hardware: dict[str, Any] = {
+        "machine": platform.machine(),
+        "processor": platform.processor(),
+        "cpu_count": os.cpu_count(),
+    }
+    if device.type == "cuda":
+        properties = torch.cuda.get_device_properties(device)
+        hardware["accelerator"] = {
+            "name": properties.name,
+            "capability": [properties.major, properties.minor],
+            "total_memory": properties.total_memory,
+            "multiprocessors": properties.multi_processor_count,
+        }
+    return device, {
+        "platform": platform.platform(),
+        "python": platform.python_version(),
+        "torch": torch.__version__,
+        "torchvision": importlib.metadata.version("torchvision"),
+        "Pillow": importlib.metadata.version("Pillow"),
+        "cuda": torch.version.cuda,
+        "cudnn": torch.backends.cudnn.version(),
+        "selected_device": selected,
+        "device": str(device),
+        "hardware": hardware,
+        "deterministic_algorithms": torch.are_deterministic_algorithms_enabled(),
+        "cudnn_benchmark": torch.backends.cudnn.benchmark,
+        "cudnn_deterministic": torch.backends.cudnn.deterministic,
+        "cudnn_allow_tf32": torch.backends.cudnn.allow_tf32,
+        "matmul_allow_tf32": torch.backends.cuda.matmul.allow_tf32,
     }
 
 
@@ -225,18 +276,13 @@ def prepare_features(config: dict) -> Path:
     image_records = {item["image_id"]: item for item in dataset["image_manifest"]}
     if set(image_records) != set(scenes):
         raise ValueError("Feature preparation requires exact source-image inventory")
+    device, environment = _extraction_device(config["training"]["device"])
     identity: dict[str, Any] = {
         "encoder_identity": _encoder_identity(weights),
         "vocabulary_digest": vocabulary.digest,
         "image_manifest_digest": canonical_digest(dataset["image_manifest"]),
         "extractor_source": file_digest(__file__),
-        "environment": {
-            "platform": platform.platform(),
-            "python": platform.python_version(),
-            "torch": torch.__version__,
-            "Pillow": importlib.metadata.version("Pillow"),
-            "device": "cpu",
-        },
+        "environment": environment,
         "images": {
             key: {"scene_digest": scene_digest(scene), "image_sha256": image_records[key]["sha256"]}
             for key, scene in scenes.items()
@@ -258,11 +304,13 @@ def prepare_features(config: dict) -> Path:
             )
         return path
     encoder, transform = load_encoder(weights_path)
+    encoder = encoder.to(device=device, dtype=torch.float32)
+    encoder.requires_grad_(False)
     started = time.perf_counter()
     records = {}
     for key, scene in scenes.items():
         with Image.open(dataset_path.parent / dataset["image_root"] / scene.image_path) as image:
-            arrays = extract_crops(scene, image, encoder, transform, batch_size)
+            arrays = extract_crops(scene, image, encoder, transform, batch_size, device=device)
         shard = path.parent / "shards" / f"{canonical_digest(key)}.npz"
         if shard.exists():
             raise ValueError("Unpublished feature shards exist; use a new destination")
