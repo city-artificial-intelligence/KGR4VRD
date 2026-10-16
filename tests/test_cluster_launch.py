@@ -1,10 +1,43 @@
 """The detached worker must retain failures and refuse duplicate attempts."""
 
+import importlib.util
 import json
 import os
 import subprocess
 import sys
 from pathlib import Path
+
+
+def test_encoder_fixture_reads_only_training_objects(tmp_path, monkeypatch):
+    from test_data import source_fixture
+
+    from kgr4vrd.adapters.nesy4vrd import prepare_dataset
+    from kgr4vrd.artifacts import read_json
+    from kgr4vrd.data import load_objects, load_relations
+
+    config = source_fixture(tmp_path / "original")
+    original_path = prepare_dataset(config)
+    config["dataset"] = {"manifest": str(original_path)}
+    script = Path(__file__).resolve().parents[1] / "scripts/prepare_node.py"
+    specification = importlib.util.spec_from_file_location("prepare_node", script)
+    module = importlib.util.module_from_spec(specification)
+    specification.loader.exec_module(module)
+    original_open = Path.open
+
+    def reject_targets(path, *args, **kwargs):
+        if path.is_relative_to(original_path.parent / "relations"):
+            raise AssertionError("Original relation targets must not be opened")
+        return original_open(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", reject_targets)
+    destination = module.encoder_fixture(config, tmp_path / "fixture")
+    fixture = read_json(destination)
+    dataset = Path(fixture["dataset"]["manifest"])
+    training_ids = set(load_objects(original_path, "train"))
+    for split in ("train", "validation", "test"):
+        objects = load_objects(dataset, split)
+        assert len(objects) == 1 and set(objects) <= training_ids
+        assert all(not value for value in load_relations(dataset, split).values())
 
 
 def test_worker_receipts_failure_pause_and_duplicate_ownership(tmp_path):

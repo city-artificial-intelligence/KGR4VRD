@@ -51,6 +51,10 @@ def encoder_fixture(config, directory):
             )
             for kind in ("objects", "relations")
         }
+        count = len(scenes[key].objects)
+        manifest["partitions"][split].update(
+            image_count=1, object_count=count, pair_count=count * (count - 1), relation_count=0
+        )
     write_json(directory / "splits.json", splits)
     manifest["splits"] = dict(path="splits.json", sha256=file_digest(directory / "splits.json"))
     manifest["split_digest"] = canonical_digest(splits)
