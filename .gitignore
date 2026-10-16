@@ -7,6 +7,7 @@ __pycache__/
 
 .DS_Store
 .venv*/
+.python/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
