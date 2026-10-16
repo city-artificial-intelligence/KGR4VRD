@@ -41,8 +41,10 @@ messages; record actionable blockers and intervention outcomes locally.
    measured SHA-256, exact source files, mapping provenance, ontology identities,
    and original terms. Keep the official test membership and deterministic
    1729 split. Resolve malformed input visibly; never silently drop annotations.
-   Historical checkpoints/splits/ontology variants are not recovered. The acquired
-   public profile must be named as a fresh corrected study.
+   The archive includes author-provided training/validation split lists; use them
+   if they pass the duplicate and membership audit. Original checkpoints and exact
+   historical ontology variants are not recovered. The acquired public profile
+   must be named as a fresh corrected study.
 2. Pass the full offline suite and lint/type checks, actual CUDA head/backward/
    resume checks, and real encoder/GraphDB integration with **zero skips**.
    `scripts/prepare_node.py acceptance` creates an exclusive repository and a

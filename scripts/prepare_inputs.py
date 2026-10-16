@@ -26,6 +26,17 @@ def only(root, filename):
     return paths[0]
 
 
+def extract_archive(archive, destination):
+    with zipfile.ZipFile(archive) as stream:
+        for entry in stream.infolist():
+            target = destination / entry.filename
+            if not target.resolve().is_relative_to(destination.resolve()):
+                raise ValueError("Archive path escapes extraction root")
+            if "__MACOSX" in target.parts or target.name == ".DS_Store":
+                continue
+            stream.extract(entry, destination)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", type=Path, required=True)
@@ -42,28 +53,35 @@ def main():
     extracted = data / "raw/NeSy4VRD-1.1"
     if not extracted.exists():
         staging = Path(tempfile.mkdtemp(prefix="nesy4vrd-extract-", dir=data / "raw"))
-        with zipfile.ZipFile(archive) as stream:
-            for entry in stream.infolist():
-                target = staging / entry.filename
-                if not target.resolve().is_relative_to(staging.resolve()):
-                    raise ValueError("Archive path escapes extraction root")
-                if "__MACOSX" in target.parts or target.name == ".DS_Store":
-                    continue
-                stream.extract(entry, staging)
+        extract_archive(archive, staging)
         staging.rename(extracted)
+    images = extracted / "images"
+    if not images.exists():
+        staging = Path(tempfile.mkdtemp(prefix="images-extract-", dir=extracted))
+        for filename in ("vrd_train_images.zip", "vrd_test_images.zip"):
+            extract_archive(only(extracted, filename), staging)
+        staging.rename(images)
+    recovered_split = campaign / "recovered-split.json"
+    split_sources = {
+        "train": only(extracted, "nesy4vrd_image_names_train_training.json"),
+        "validation": only(extracted, "nesy4vrd_image_names_train_validation.json"),
+    }
+    write_json(recovered_split, {key: read_json(path) for key, path in split_sources.items()})
     sources = {
         "object_vocabulary": only(extracted, "nesy4vrd_objects.json"),
         "predicate_vocabulary": only(extracted, "nesy4vrd_predicates.json"),
         "train_annotations": only(extracted, "nesy4vrd_annotations_train.json"),
         "test_annotations": only(extracted, "nesy4vrd_annotations_test.json"),
-        "images": extracted,
+        "images": images,
+        "historical_split": recovered_split,
     }
     author = data / "raw/NeSy4VRD-source"
     author_commit = subprocess.check_output(
         ["git", "-C", str(author), "rev-parse", "HEAD"], text=True
     ).strip()
     # The exact historical variants are unavailable; use an explicitly named public profile.
-    ontology_source = author / "ontology/vrd_world_v1_2.owl"
+    ontology_source = only(extracted, "vrd_world_v1_2.owl")
+    assert file_digest(ontology_source) == file_digest(author / "ontology/vrd_world_v1_2.owl")
     graph = Graph().parse(ontology_source, format="turtle")
     inventory = ontology_inventory(graph)
     write_json(campaign / "ontology-structural-inventory.json", inventory)
@@ -139,7 +157,7 @@ def main():
     config["preparation"] = dict(
         source_version="1.1",
         output_directory=f"prepared/nesy4vrd/{tag}",
-        sources={key: str(path.relative_to(data)) for key, path in sources.items()},
+        sources={key: os.path.relpath(path, data) for key, path in sources.items()},
         augmentation_ontology=str((profile / "asserted-augmentation.ttl").relative_to(data)),
         compatibility_ontology=str((profile / "asserted-checker.ttl").relative_to(data)),
         augmentation_format="turtle",
