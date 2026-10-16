@@ -88,9 +88,12 @@ def main():
     if inventory["unsupported_constructs"]:
         raise ValueError("Public ontology has unsupported constructs; do not weaken it silently")
     profile = data / "raw/public-vrd-world-1.2-20261016"
-    profile.mkdir(exist_ok=False)
+    profile.mkdir(exist_ok=True)
     for name in ("asserted-augmentation.ttl", "asserted-checker.ttl"):
-        shutil.copyfile(ontology_source, profile / name)
+        if (profile / name).exists():
+            assert file_digest(profile / name) == file_digest(ontology_source)
+        else:
+            shutil.copyfile(ontology_source, profile / name)
     mappings = []
     prefix = "http://www.semanticweb.org/nesy4vrd/ontologies/vrd_world#"
     for kind, filename, declaration in (
@@ -103,6 +106,18 @@ def main():
             if kind == "predicate":
                 local = words[0] + "".join(word.capitalize() for word in words[1:])
             iri = prefix + local
+            if kind == "object_class" and label in {"road", "coat", "plane"}:
+                mappings.append(
+                    dict(
+                        label_kind=kind,
+                        label_id=index,
+                        iri=None,
+                        mapping_relation="unmapped",
+                        rationale="Publisher retains this deprecated vocabulary ID but states that no annotations use it; preserve the column and explicit unknown status.",
+                        provenance="NeSy4VRD 1.1 nesy4vrd_annotations/readme.txt section 3 (archive checksum recorded in acquisition.json)",
+                    )
+                )
+                continue
             if (URIRef(iri), RDF.type, declaration) not in graph:
                 raise ValueError(f"Author mapping lacks the expected declaration: {label}: {iri}")
             mappings.append(
@@ -207,6 +222,28 @@ def main():
         ),
     )
     dataset = prepare_dataset(config)
+    from kgr4vrd.data import load_objects
+
+    deprecated = {row["label_id"] for row in mappings if row["mapping_relation"] == "unmapped"}
+    observed = {
+        obj.class_id
+        for split in ("train", "validation", "test")
+        for scene in load_objects(dataset, split).values()
+        for obj in scene.objects
+    }
+    if deprecated & observed:
+        raise ValueError(
+            "Publisher-deprecated class IDs occur in supplied objects; mapping adjudication required"
+        )
+    write_json(
+        campaign / "vocabulary-coverage.json",
+        dict(
+            vocabulary_classes=112,
+            observed_classes=len(observed),
+            deprecated_unused_ids=sorted(deprecated),
+            interpretation="112 stable vocabulary slots, 109 active classes as documented by publisher; no class reindexing",
+        ),
+    )
     campaign_input = campaign / "campaign.toml"
     campaign_input.write_text(
         'schema_version = "kgr4vrd.campaign-config/1"\nbase_config = "config.json"\n'
