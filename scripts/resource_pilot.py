@@ -32,7 +32,7 @@ from kgr4vrd.artifacts import (
 from kgr4vrd.config import data_path, load_config
 from kgr4vrd.data import build_pairs, load_manifest, load_objects, load_vocabulary
 from kgr4vrd.prediction import evaluate_predictions, predict
-from kgr4vrd.reasoning import load_knowledge, validate_profile_metadata
+from kgr4vrd.reasoning import load_knowledge, load_simple_filter, validate_profile_metadata
 
 MODELS = ("geometry_mlp", "visual_mlp_v1")
 
@@ -160,7 +160,7 @@ def inventory(protocol):
     for field in ("relations", "derivations"):
         verify_file(augmentation_path.parent, augmentation[field])
     simple_path = data_path(config, config["evaluation"]["simple_filter_manifest"])
-    simple = load_knowledge(simple_path, vocabulary)
+    simple = load_simple_filter(simple_path, vocabulary)
     counts = {}
     for split in ("train", "validation", "test"):
         scenes = load_objects(dataset_path, split)  # Supplied inputs only; no test labels.
@@ -339,8 +339,8 @@ def projections(inventory_record, records):
             for c in cases
         )
         baseline = next(c for c in cases if c["condition"] == "baseline")
-        # 4 development + 25 final runs per head; one epoch is only a lower scenario.
-        lower += 29 * (min(epoch_times) + startup)
+        # 4 development + 25 final runs per head; earliest stop is epoch 26.
+        lower += 29 * (26 * min(epoch_times) + startup)
         upper += 29 * (100 * max(epoch_times) + startup)
         # 25 raw-score artifacts and 55 views per head; scale by actual candidate pairs.
         views = {r["mode"]: r for r in baseline["evaluations"]}
@@ -369,7 +369,7 @@ def projections(inventory_record, records):
             storage / 1e9,
             (storage + run_storage + score_storage + evaluation_storage) / 1e9,
         ],
-        "assumptions": "58 runs, 1-to-100 epochs; patience remains 25. Epoch timing range from both heads' baseline and combined pilots, including gate epoch. Prediction/evaluation scale validation measurements by test/validation candidate pairs (50 scores, 110 views). Upper storage adds 100% run/score/evaluation reserve for longer logs and recovery. Retained preparation includes failed attempts' cumulative time. Report-generation/bootstrap runtime is unmeasured and excluded. Image complexity, cache warmth and stopping epoch affect cost; these are projections, never termination limits.",
+        "assumptions": "58 runs, 26-to-100 epochs (earliest stop: best epoch 1 plus patience 25). Epoch timing range from both heads' baseline and combined pilots, including gate epoch. Prediction/evaluation scale validation measurements by test/validation candidate pairs (50 scores, 110 views). Upper storage adds 100% run/score/evaluation reserve for longer logs and recovery. Retained preparation includes failed attempts' cumulative time. Report-generation/bootstrap runtime is unmeasured and excluded. Image complexity, cache warmth and stopping epoch affect cost; these are projections, never termination limits.",
     }
 
 

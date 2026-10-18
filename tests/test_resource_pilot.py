@@ -5,7 +5,7 @@ import os
 
 import pytest
 import torch
-from resource_pilot import CudaMeter, measure_training, tree_bytes
+from resource_pilot import CudaMeter, measure_training, projections, tree_bytes
 from test_vision import visual_fixture
 
 from kgr4vrd import training
@@ -77,3 +77,36 @@ def test_meter_restores_observers_after_failure_and_storage_deduplicates_links(t
     path.write_bytes(b"12345")
     (tmp_path / "alias").hardlink_to(path)
     assert tree_bytes(tmp_path) == 5
+
+
+def test_projection_respects_patience_and_registered_view_counts():
+    inventory = {
+        "counts": {"test": {"pairs": 20}, "validation": {"pairs": 10}},
+        "storage_bytes": {"inputs": 100},
+        "cumulative_preparation_seconds": 3600,
+    }
+    records = []
+    for model in ("geometry_mlp", "visual_mlp_v1"):
+        for condition in ("baseline", "combined"):
+            records.append(
+                {
+                    "model": model,
+                    "condition": condition,
+                    "epochs": [{"training_seconds": 1, "validation_seconds": 1}],
+                    "training_wall_seconds": 2,
+                    "run_bytes": 10,
+                    "score_bytes": 10,
+                    "prediction_wall_seconds": 1,
+                    "evaluations": [
+                        {"mode": mode, "seconds": 1, "bytes": 1}
+                        for mode in ("none", "ontology", "simple_asserted")
+                    ],
+                }
+            )
+    result = projections(inventory, records)
+    # 58 registered runs cannot stop before 26 epochs under patience 25.
+    # Exactly 50 raw scores and 110 views, each scaled by 20/10 candidate pairs.
+    assert result["runtime_hours_range"] == [
+        (3600 + 58 * 26 * 2 + (50 + 110) * 2) / 3600,
+        (3600 + 58 * 100 * 2 + (50 + 110) * 2) / 3600,
+    ]
