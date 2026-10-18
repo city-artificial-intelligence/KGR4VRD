@@ -16,7 +16,7 @@ def digest(path):
         return hashlib.file_digest(stream, "sha256").hexdigest()
 
 
-def publish(spec_path, supervisor, exact_source):
+def publish(spec_path, supervisor, exact_source, *, prepare_existing=False):
     spec_path, supervisor = Path(spec_path).resolve(), Path(supervisor).resolve()
     spec = json.loads(spec_path.read_text())
     directory = Path(spec["directory"])
@@ -77,8 +77,24 @@ def publish(spec_path, supervisor, exact_source):
         registry = json.loads((supervisor / "registry.json").read_text())
         identifiers = {r["id"] for r in registry["runs"] + registry["pending_batches"]}
         if batch["id"] in identifiers:
-            raise ValueError("Logical ID already registered")
-        registry["pending_batches"].append(batch)
+            existing = [r for r in registry["pending_batches"] if r["id"] == batch["id"]]
+            if (
+                not prepare_existing
+                or any(r["id"] == batch["id"] for r in registry["runs"])
+                or len(existing) != 1
+                or existing[0].get("launch")
+                or existing[0].get("enabled", True) is False
+                or existing[0].get("depends_on", []) != batch["depends_on"]
+                or existing[0]["resources"] != batch["resources"]
+            ):
+                raise ValueError("Logical ID already registered or incompatible preparation")
+            # Attach the reviewed descriptor atomically; never remove an obligation
+            # in a separate write or rewrite existing dependency links/history.
+            existing[0].update(batch)
+        elif prepare_existing:
+            raise ValueError("No existing preparation obligation")
+        else:
+            registry["pending_batches"].append(batch)
         registry["remaining_work_status"] = "pending"
         write(supervisor / "registry.json", registry)
     return batch
@@ -89,5 +105,16 @@ if __name__ == "__main__":
     parser.add_argument("spec", type=Path)
     parser.add_argument("--supervisor", type=Path, required=True)
     parser.add_argument("--exact-source", type=Path, required=True)
+    parser.add_argument("--prepare-existing", action="store_true")
     args = parser.parse_args()
-    print(json.dumps(publish(args.spec, args.supervisor, args.exact_source), indent=2))
+    print(
+        json.dumps(
+            publish(
+                args.spec,
+                args.supervisor,
+                args.exact_source,
+                prepare_existing=args.prepare_existing,
+            ),
+            indent=2,
+        )
+    )
