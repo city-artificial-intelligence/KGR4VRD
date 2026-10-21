@@ -1,63 +1,117 @@
 # KGR4VRD: Knowledge Graph Reasoning for Visual Relationship Detection
 
-## Corrected research package
+Research code accompanying the paper:
 
-The supported implementation is [`src/kgr4vrd`](src/kgr4vrd), with one trainer,
-validation-only checkpoint selector and evaluator shared by the geometry and visual
-heads. The [five specifications](docs/specs/README.md) define its scientific contract.
+> David Herron, Ernesto Jiménez-Ruiz, and Tillman Weyde (2026).
+> **Logical Reasoning with OWL Knowledge Graphs for Learning and Validating Visual Relationship Detection.**
 
-For a GPU node, start with the [compute-node handoff](docs/compute-node-handoff.md)
-and [pre-run review](docs/implementation-review-2026-10-15.md). Use the separate
-[locked CUDA environment](docs/cuda-environment.md) for GPU execution. The
-installation below selects CPU-only PyTorch on Linux.
+KGR4VRD studies how symbolic knowledge and OWL reasoning can guide neural networks
+that predict relationships between objects in images, such as **(person, ride,
+horse)**. It combines a neural predicate classifier with **VRD-World**, the
+companion ontology of the **NeSy4VRD** dataset.
 
-With Python 3.11 and [uv](https://docs.astral.sh/uv/):
+The Python package focuses on **predicate classification**: given object classes
+and bounding boxes, predict the relationships between ordered pairs of objects.
+It provides data preparation, ontology reasoning, training, evaluation, and report
+generation through the `kgr4vrd` command-line interface.
+
+## Approach
+
+The research investigates two uses of OWL reasoning:
+
+- **Annotation augmentation:** infer additional relationships from the training
+  annotations and ontology to enrich the supervision available to the network.
+- **Prediction validation:** identify relationships that conflict with the
+  ontology, using these judgments as semantic loss penalties during training and
+  as filters during inference.
+
+The package supports four training conditions—baseline, annotation augmentation,
+semantic loss, and their combination—with optional inference filtering. Geometry
+and visual-feature predictors share the same training, checkpoint selection, and
+evaluation pipeline. Checkpoints are selected on validation data, and saved
+prediction scores can be evaluated under different filtering conditions without
+retraining.
+
+The [experimental protocol](docs/specs/01-experimental-protocol.md) describes the
+comparisons, controls, and evaluation measures. The
+[reasoning documentation](docs/data-preparation.md) defines the supported ontology
+profile and the treatment of unknown reasoning outcomes.
+
+## Dataset
+
+[NeSy4VRD](https://github.com/djherron/NeSy4VRD) combines visual relationship
+annotations with **VRD-World**, an OWL ontology describing the object classes and
+relationships in the images. The dataset and ontology are available from
+[Zenodo](https://doi.org/10.5281/zenodo.7916355).
+
+Follow the [data preparation guide](docs/data-preparation.md) to acquire the
+inputs, configure local paths, and prepare the dataset, ontology artifacts, and
+visual features. Dataset files, pretrained weights, and generated experiment
+artifacts are stored locally outside version control.
+
+## Installation and quick start
+
+Use **Python 3.11** and [uv](https://docs.astral.sh/uv/) to install the dependencies
+from the committed lockfile:
 
 ```sh
+git clone https://github.com/city-artificial-intelligence/KGR4VRD.git
+cd KGR4VRD
 uv sync --locked --all-extras --group dev --python 3.11
 uv run --locked kgr4vrd --help
 uv run --locked kgr4vrd smoke --output artifacts/smoke
 ```
 
-The four-epoch, four-condition smoke example is offline after installation and
-creates synthetic checkpoints, predictions, evaluations and report figures. Use a
-fresh output directory. Synthetic success is not a completed NeSy4VRD experiment.
+The smoke example runs all four training conditions for four epochs on synthetic
+data, then saves checkpoints, predictions, evaluation tables, and report figures
+under `artifacts/smoke/`. It runs offline after installation and requires a fresh
+output directory each time. Use it to check the installation and exercise the
+complete pipeline before preparing NeSy4VRD experiments.
 
-See [running experiments](docs/running-experiments.md),
-[data preparation](docs/data-preparation.md),
-[historical differences](docs/historical-differences.md), and
-[implementation and verification status](docs/implementation-report.md).
-Real-data, GraphDB and encoder acceptance remain explicit requirements.
+This installation selects CPU PyTorch on Linux. For GPU execution, follow the
+[CUDA environment guide](docs/cuda-environment.md).
 
-## Historical research description
+## Running experiments
 
-The description below records the original research context. Its broad statement
-about OWL soundness/completeness is not a guarantee made by this package: the
-corrected implementation is bounded by the declared supported reasoning profile,
-backend conformance and independent-typed-relation query scope. Historical scripts
-are preserved under `legacy/` and are not supported entry points for new studies.
+The [experiment guide](docs/running-experiments.md) covers input preparation,
+experiment planning, training, checkpoint selection, prediction, evaluation, and
+report generation. Example configurations are provided in [`configs/`](configs/).
 
-## KGR4VRD
-The **KGR4VRD** repository hosts code associated with aspects of our **neurosymbolic AI research**. This research explores **combining symbolic knowledge and symbolic reasoning with deep (subsymbolic) learning** in neurosymbolic systems directed at the computer vision task of **detecting visual relationships in images**. An example visual relationship for a hypothetical image is, say, **(person, ride, horse)**. 
+Training records the configuration, input identities, and resumable state for
+each run. Evaluation saves raw scores and structured results, allowing tables and
+figures to be regenerated from saved artifacts. Ontology artifacts are prepared
+before training; GraphDB is required for compatibility preparation, while training
+and evaluation use the saved artifacts.
 
-For the symbolic elements (knowledge and reasoning) of our neurosymbolic systems, we rely entirely on **Semantic Web** technologies. That is, to represent symbolic knowledge, we use **OWL** (the Web Ontology Language), **OWL ontologies** (descriptions of domains of interest that have associated inference semantics), and **OWL knowledge graphs** (ontologies together with asserted facts in RDF triple stores).  For symbolic reasoning, we use **OWL reasoning**, or OWL knowledge graph reasoning. Since OWL is the Semantic Web incarnation of the formal Description logic $\mathcal{SROIQ}$, OWL reasoning is really $\mathcal{SROIQ}$ reasoning. Hence, it is guaranteed to be both logically sound and logically complete. Description logics are decidable fragments of first-order logic, and $\mathcal{SROIQ}$ is a particularly expressive fragment.
+The [protocol and implementation specifications](docs/specs/README.md) document
+the experimental design and artifact formats. The
+[implementation history](docs/historical-differences.md) records methodological
+changes from the original scripts.
 
-We describe this research in the (forthcoming) paper:
-> **Herron, D., Jimenez-Ruiz, E., Weyde, T.** (2026). `Logical Reasoning with OWL Knowledge Graphs for Learning and Validating Visual Relationship Detection.` (under review)
+## Repository structure
 
+| Path | Contents |
+| --- | --- |
+| [`src/kgr4vrd/`](src/kgr4vrd/) | Python package and command-line interface |
+| [`configs/`](configs/) | Dataset, model, and experiment configurations |
+| [`scripts/`](scripts/) | Input preparation and experiment orchestration |
+| [`tests/`](tests/) | Scientific regression, pipeline, and integration tests |
+| [`docs/`](docs/) | Installation, experiment instructions, and technical specifications |
+| [`paper/JAIR_paper/`](paper/JAIR_paper/) | Manuscript sources and figures |
+| [`legacy/`](legacy/) | Original scripts retained for reference |
 
-## NeSy4VRD
+## Citation
 
-Our research, and hence our code, uses the **NeSy4VRD** dataset.
-The acronym NeSy4VRD stands for "Neurosymbolic AI for Visual Relationship Detection". 
-NeSy4VRD is a unique **`image dataset plus OWL ontology' resource** that we created to facilitate our neurosymbolic AI research.
+If you use this code in your research, please cite the accompanying paper:
 
-NeSy4VRD has two components: the NeSy4VRD dataset package, and the NeSy4VRD GitHub repository.
+```bibtex
+@misc{herron2026kgr4vrd,
+  title  = {Logical Reasoning with {OWL} Knowledge Graphs for Learning and Validating Visual Relationship Detection},
+  author = {Herron, David and Jiménez-Ruiz, Ernesto and Weyde, Tillman},
+  year   = {2026}
+}
+```
 
-The **NeSy4VRD dataset package** contains *(i)* the NeSy4VRD dataset, consisting of an image dataset with high-quality visual relationship annotations, and *(ii)* the NeSy4VRD OWL ontology, **VRD-World**.  VRD-World is a custom-designed, closely-aligned, common sense, companion ontology to the NeSy4VRD dataset.  It describes the world reflected in the visual relationships annotated for the NeSy4VRD images (their object classes and predicates) in a common sense way. The close alignment of VRD-World OWL ontology with the NeSy4VRD dataset ensures that the results of symbolic OWL reasoning are pertinent to the deep (subsymbolic) learning task at hand: visual relationship detection.
-The NeSy4VRD dataset package is available on the open-access digital repository [Zenodo](https://doi.org/10.5281/zenodo.7916355).
+## License
 
-The **NeSy4VRD GitHub repository** hosts *(i)* code and related infrastructure that supports extensibility of NeSy4VRD, *(ii)* extensive documentation describing how to use the extensibility support features made available, and *(iii)* sample code.
-The NeSy4VRD GitHub repository is on [GitHub](https://github.com/djherron/NeSy4VRD).
-
-
+The code is available under the [MIT License](LICENSE).
