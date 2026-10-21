@@ -1,10 +1,5 @@
 # KGR4VRD: Knowledge Graph Reasoning for Visual Relationship Detection
 
-Research code accompanying the paper:
-
-> David Herron, Ernesto Jiménez-Ruiz, and Tillman Weyde (2026).
-> **Logical Reasoning with OWL Knowledge Graphs for Learning and Validating Visual Relationship Detection.**
-
 KGR4VRD studies how symbolic knowledge and OWL reasoning can guide neural networks
 that predict relationships between objects in images, such as **(person, ride,
 horse)**. It combines a neural predicate classifier with **VRD-World**, the
@@ -97,20 +92,7 @@ changes from the original scripts.
 | [`scripts/`](scripts/) | Input preparation and experiment orchestration |
 | [`tests/`](tests/) | Scientific regression, pipeline, and integration tests |
 | [`docs/`](docs/) | Installation, experiment instructions, and technical specifications |
-| [`paper/JAIR_paper/`](paper/JAIR_paper/) | Manuscript sources and figures |
 | [`legacy/`](legacy/) | Original scripts retained for reference |
-
-## Citation
-
-If you use this code in your research, please cite the accompanying paper:
-
-```bibtex
-@misc{herron2026kgr4vrd,
-  title  = {Logical Reasoning with {OWL} Knowledge Graphs for Learning and Validating Visual Relationship Detection},
-  author = {Herron, David and Jiménez-Ruiz, Ernesto and Weyde, Tillman},
-  year   = {2026}
-}
-```
 
 ## License
 
