@@ -48,6 +48,19 @@ def test_report_regeneration_compares_actual_tables_and_pngs(tmp_path):
     second = tmp_path / "second"
     report_evaluations(evaluations, second)
     assert report_stage.compare_reports(first, second)
+    # Optimized reporters may add operational receipts; their timing can differ.
+    for index, directory in enumerate((first, second)):
+        write_json(
+            directory / "figure-progress.json",
+            dict(
+                stage="report figures",
+                status="completed",
+                completed=1,
+                total=1,
+                elapsed_seconds=index + 1,
+            ),
+        )
+    assert report_stage.compare_reports(first, second)
     progress = second / "figure-progress.json"
     saved_progress = progress.read_bytes()
     record = read_json(progress)

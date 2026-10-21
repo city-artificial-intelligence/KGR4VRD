@@ -16,6 +16,11 @@ from kgr4vrd.data import load_objects
 from kgr4vrd.smoke import prepare_smoke
 
 
+@pytest.mark.integration
+@pytest.mark.skipif(
+    os.environ.get("KGR4VRD_CUDA_TEST") != "1",
+    reason="KGR4VRD_CUDA_TEST=1 and an actual CUDA device are required",
+)
 @pytest.mark.parametrize("model", ["geometry_mlp", "visual_mlp_v1"])
 def test_meter_preserves_exact_cuda_training_and_gate(tmp_path, monkeypatch, model):
     assert os.environ.get("KGR4VRD_CUDA_TEST") == "1" and torch.cuda.is_available()

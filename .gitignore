@@ -16,6 +16,7 @@ dist/
 build/
 data/
 artifacts/
+/exports/
 .env
 *.pt
 *.pth
